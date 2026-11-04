@@ -1,0 +1,19 @@
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs / müvəqqəti fayllar
+*.log
+*.tmp
+
+# Gələcək build / asılılıqlar
+node_modules/
+dist/
+.env
+.env.*

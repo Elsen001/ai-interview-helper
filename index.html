@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Interview Copilot · Gemini</title>
+<link rel="preconnect" href="https://generativelanguage.googleapis.com" />
+<link rel="stylesheet" href="./styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237c5cff'/%3E%3Cpath d='M10 21V11l6 6 6-6v10' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 17V7l5 5 5-5v10" />
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>Interview Copilot</h1>
+      <p id="modelBadge">gemini-2.5-flash</p>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="status" id="status" data-kind="idle">
+      <span class="status-dot"></span>
+      <span id="statusText">Hazır</span>
+    </div>
+
+    <button id="micBtn" class="btn ghost icon-only" type="button" data-paused="false"
+      title="Mikrofonu susdur / davam et (Alt+M)" aria-label="Mikrofonu susdur">
+      <svg class="ico-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" />
+        <path d="M19 11a7 7 0 0 1-14 0" />
+        <path d="M12 18v3" />
+      </svg>
+      <svg class="ico-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 3l18 18" />
+        <path d="M9 6a3 3 0 0 1 6 0v5" />
+        <path d="M15 15a3 3 0 0 1-6-2v-1" />
+        <path d="M19 11a7 7 0 0 1-1.2 3.9" />
+        <path d="M5 11a7 7 0 0 0 10.6 6" />
+        <path d="M12 18v3" />
+      </svg>
+    </button>
+
+    <button id="startBtn" class="btn primary" type="button" data-state="idle" title="Dinləməni başlat / dayandır (Alt+S)">
+      <svg class="ico ico-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" />
+        <path d="M19 11a7 7 0 0 1-14 0" />
+        <path d="M12 18v3" />
+      </svg>
+      <svg class="ico ico-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </svg>
+      <span id="startLabel">Start</span>
+    </button>
+
+    <button id="settingsBtn" class="btn ghost icon-only" type="button" title="Ayarlar" aria-label="Ayarlar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15H4.5a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 6.15 9.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 8.58 5.1l.06.06A1.7 1.7 0 0 0 10.5 5.5h.09A1.7 1.7 0 0 0 11.62 4V3.9a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.56 1.03h.09a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z" />
+      </svg>
+    </button>
+
+    <button id="clearBtn" class="btn ghost icon-only" type="button" title="Hər şeyi təmizlə" aria-label="Təmizlə">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ================= MÜSAHİBƏ ================= -->
+  <section class="panel" id="transcriptPanel">
+    <div class="panel-head">
+      <h2><span class="pulse"></span> Müsahibə (canlı)</h2>
+      <span class="hint" id="transcriptCount"></span>
+    </div>
+
+    <div class="panel-body" id="transcriptBody">
+      <div class="empty" id="transcriptEmpty">
+        <div class="empty-ico">🎧</div>
+        <p><strong>Hələ heç nə yoxdur.</strong></p>
+        <p class="muted">“Start” düyməsinə bas və müsahibənin sualını dinlə. Dedikləri burada real vaxtda yazılacaq.</p>
+      </div>
+    </div>
+
+    <div class="live-strip" id="liveStrip" hidden>
+      <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="interim" id="interimText"></span>
+    </div>
+
+    <div class="pending-bar">
+      <div class="pending-head">
+        <span>Sual (göndərilməyə hazır)</span>
+        <span class="muted small" id="autoTag"></span>
+      </div>
+      <textarea id="pendingInput" rows="2" spellcheck="false"
+        placeholder="Danışdıqca burada yığılır. Lazım olsa redaktə et və Göndər."></textarea>
+      <div class="pending-actions">
+        <button class="btn ghost small" id="introBtnMain" type="button" title="CV-dən özünü təqdimat hazırla">✨ Özünü təqdim et</button>
+        <span class="spacer"></span>
+        <button class="btn ghost small" id="clearPendingBtn" type="button">Sualı sil</button>
+        <button class="btn accent" id="sendBtn" type="button">
+          Göndər
+          <kbd>Ctrl ↵</kbd>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CAVAB ================= -->
+  <section class="panel" id="answersPanel">
+    <div class="panel-head">
+      <h2>Gemini cavabı</h2>
+      <span class="hint">Oxu, de — qalanı Gemini edir</span>
+    </div>
+
+    <div class="panel-body answers" id="answersBody">
+      <div class="empty" id="answersEmpty">
+        <div class="empty-ico">✨</div>
+        <p><strong>Cavablar burada görünəcək.</strong></p>
+        <p class="muted" id="answersEmptyHint">İlk müsahibə sualını gözləyirəm…</p>
+        <button class="btn ghost small" id="setupBtn" type="button">API açarını qur</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ================= AYARLAR ================= -->
+<dialog id="settingsDialog" class="dialog">
+  <div class="dialog-card">
+    <header class="dialog-head">
+      <h2>Ayarlar</h2>
+      <button class="icon-btn" id="closeSettings" type="button" aria-label="Bağla">✕</button>
+    </header>
+
+    <div class="dialog-body">
+
+      <section class="group">
+        <h3>Gemini</h3>
+
+        <label class="field">
+          <span class="field-label">
+            API açarı
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">açar al ↗</a>
+          </span>
+          <div class="input-row">
+            <input id="apiKey" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+            <button id="toggleKeyBtn" class="btn ghost" type="button">Göstər</button>
+          </div>
+          <small>Yalnız bu brauzerdə (localStorage) saxlanılır. Heç bir serverə yazılmır.</small>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Model</span>
+          <div class="input-row">
+            <select id="model">
+              <option value="gemini-2.5-flash">gemini-2.5-flash — sürətli, tövsiyə olunur</option>
+              <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite — ən sürətli</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro — daha dərin</option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            </select>
+            <button id="refreshModelsBtn" class="btn ghost" type="button" title="Açar ilə mövcud modelləri yüklə">⟳</button>
+          </div>
+        </label>
+
+        <div class="row-check">
+          <label class="switch">
+            <input id="autoSend" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="switch-label">Avtomatik göndər (sükutdan sonra)</span>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">
+            <span>Sükut müddəti — <b id="silenceLabel">1.5 s</b></span>
+            <span class="muted small">səssizlikdən sonra göndər</span>
+          </span>
+          <input id="silenceRange" type="range" min="600" max="4000" step="100" />
+        </label>
+
+        <div class="row-actions">
+          <button id="testBtn" class="btn ghost small" type="button">Bağlantını yoxla</button>
+          <span class="muted small" id="testResult"></span>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>CV / təcrübə</h3>
+        <p class="group-note">
+          “Özünü tanıt”, “CV-ni danış”, “bu layihədə nə etdin” kimi suallar bu mətndən cavablanacaq.
+        </p>
+
+        <div class="dropzone" id="cvDrop" tabindex="0" role="button"
+          aria-label="CV faylını yüklə">
+          <input type="file" id="cvFile" accept=".pdf,.docx,.txt,.md,.rtf" hidden />
+          <div class="dz-ico">📄</div>
+          <div class="dz-body">
+            <div><b>CV yüklə</b> — faylı bura at və ya klik et</div>
+            <div class="small muted">PDF · DOCX · TXT · maks. 8 MB</div>
+          </div>
+        </div>
+
+        <div class="cv-status" id="cvStatus" data-kind="empty">
+          <span class="status-dot"></span>
+          <span id="cvStatusText">CV yüklənməyib</span>
+        </div>
+
+        <label class="field">
+          <span class="field-label">
+            <span>CV mətni <em class="muted">(redaktə edilə bilər)</em></span>
+            <button class="link-btn" id="clearCvBtn" type="button">sil</button>
+          </span>
+          <textarea id="cvText" rows="7" spellcheck="false"
+            placeholder="Fayl yüklə, ya da CV mətnini birbaşa bura yapışdır…"></textarea>
+          <small id="cvMeta">0 simvol</small>
+        </label>
+
+        <div class="row-actions">
+          <button id="introBtn" class="btn ghost small" type="button">✨ Özünü təqdim et</button>
+          <span class="muted small">→ “Tell me about yourself” sualını göndərir</span>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>Cavab</h3>
+
+        <label class="field">
+          <span class="field-label">Cavab dili / formatı</span>
+          <select id="answerLang">
+            <option value="en+az">İngiliscə cavab + Azərbaycanca qısa izah</option>
+            <option value="en">Yalnız İngiliscə</option>
+            <option value="az">Yalnız Azərbaycanca</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Vakansiya konteksti <em class="muted">(istəyə bağlı)</em></span>
+          <input id="context" type="text" placeholder="Məs: Senior Frontend Developer, React/TypeScript, Fintech" spellcheck="false" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">
+            Sistem təlimatı (persona)
+            <button id="resetPersonaBtn" class="link-btn" type="button">sıfırla</button>
+          </span>
+          <textarea id="persona" rows="4" spellcheck="false"></textarea>
+          <small>Cavabın tonunu və qaydalarını burada dəyişə bilərsən.</small>
+        </label>
+      </section>
+
+      <section class="group">
+        <h3>Nitq tanıma</h3>
+
+        <label class="field">
+          <span class="field-label">Müsahibənin dili</span>
+          <input id="recogLang" type="text" list="langList" spellcheck="false" placeholder="en-US" />
+          <datalist id="langList">
+            <option value="en-US"></option>
+            <option value="en-GB"></option>
+            <option value="en-IN"></option>
+            <option value="az-AZ"></option>
+            <option value="tr-TR"></option>
+            <option value="ru-RU"></option>
+            <option value="de-DE"></option>
+          </datalist>
+          <small>Chrome/Edge Veb Nitq API-si istifadə edir. İnternet tələb olunur.</small>
+        </label>
+
+        <div class="row-check">
+          <label class="switch">
+            <input id="autoPause" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="switch-label">Cavab gələndə mikrofonu avtomatik susdur</span>
+          </label>
+          <small class="offset">Tövsiyə olunur: cavabı ucadan oxuyanda nitq tanıma sənin sözlərini “sual” kimi göndərməsin.</small>
+        </div>
+      </section>
+
+      <p class="dialog-note">
+        Qeyd: səhifə <b>http://localhost</b> üzərindən açılmalıdır ki, mikrofon işləsin.
+        <code>start.bat</code> bunu avtomatik edir.
+      </p>
+    </div>
+
+    <footer class="dialog-foot">
+      <button class="btn ghost" id="doneBtn" type="button">Bağla</button>
+      <button class="btn primary" id="saveCloseBtn" type="button">Yadda saxla</button>
+    </footer>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="./app.js"></script>
+</body>
+</html>
