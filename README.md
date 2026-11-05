@@ -56,6 +56,7 @@ Bundan sonra:
 | **Göndər** (`Ctrl+Enter`) | Sualı əl ilə göndərir (avtomatik göndərmə bağlı olsa da işləyir) |
 | **Sualı sil** | Yığılmış sualı təmizləyir |
 | **Kopyala** | Cavabı buferə kopyalayır |
+| **🔊 Dinlə** | Cavabı ElevenLabs ilə səsləndirir (dil avtomatik seçilir) |
 | **Təmizlə** | Bütün mətn və cavabları silir |
 | `Esc` | Dinləməni dayandırır |
 
@@ -74,11 +75,47 @@ Sual göndərilməzdən əvvəl sol paneldəki xanada **redaktə edə bilərsən
 - **Sistem təlimatı** — tonu və qaydaları tam dəyişmək istəsən.
 - **Nitq dili** — müsahibə ingiliscədirsə `en-US` saxla (`en-GB`, `tr-TR` və s. də mümkündür).
 
+## Səs — ElevenLabs (istəyə bağlı)
+
+Cavab mətnini robot səslə oxutmaq üçün:
+
+1. [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) ünvanından **ElevenLabs API açarı** al.
+2. Ayarlarda **Səs — ElevenLabs** bölməsində açarı yapışdır.
+3. `Cavab gələndə avtomatik səsləndir` keçidini aç (və ya hər cavabda **🔊 Dinlə** düyməsini bas).
+4. `Səsi yoxla` ilə açarın işlədiyini yoxla.
+
+### Dil avtomatik seçilir
+
+Səs dili ayardakı “Cavab dili”nə deyil, **Copilot-un həqiqətən yazdığı cavaba** görə təyin olunur:
+
+| Cavabın dili | İstifadə olunan model | Nəticə |
+| --- | --- | --- |
+| İngiliscə | `eleven_flash_v2_5` | Sürətli, ucuz ingiliscə səs |
+| Azərbaycanca | `eleven_v3` | AZ dilini dəstəkləyən səs |
+
+- Yalnız `ANSWER` / `CAVAB` hissəsi oxunur — `İZAH` səsləndirilmir.
+- Model siyahısında `Avtomatik` seçimi bunu idarə edir. İstəsən konkret model seçə bilərsən.
+- İngiliscə və azərbaycanca üçün **ayrı səslər** seçilə bilər. `⟳` düyməsi açarındaki bütün səsləri yükləyir.
+- Cavab kartında `EN` / `AZ` nişanı hansı dildə səsləndiriləcəyini göstərir.
+
+> `eleven_flash_v2_5` rəsmi olaraq Azərbaycan dilini dəstəkləmir, ona görə AZ cavablar üçün avtomatik `eleven_v3` istifadə olunur.
+
+### Qiymət və limit
+
+- Pulsuz plan: **10 000 simvol/ay** (təxminən 22–25 cavab).
+- Flash: **$0.04 / 1 000 simvol**; v3: **$0.08 / 1 000 simvol**.
+- Orta cavab ~450 simvol → Flash ilə ~$0.018, v3 ilə ~$0.036.
+- Eyni cavab təkrar dinlənəndə keşdən oxunur — əlavə kredit getmir.
+
+> Açar yalnız brauzerdə (`localStorage`) saxlanılır. Layihəni publik serverdə yerləşdirsən, açarı server proxy arxasına keçir.
+
 ## Texniki qeydlər
 
 - Nitq tanıma **Web Speech API** ilə işləyir → yalnız **Chrome / Edge** (Firefox dəstəkləmir) və internet lazımdır.
 - Gemini çağırışı birbaşa brauzerdən `generativelanguage.googleapis.com` ünvanına gedir (API CORS dəstəkləyir),
   cavab **streaming** (SSE) ilə gəlir — mətn yazıldıqca görünür.
+- ElevenLabs çağırışı da birbaşa brauzerdən `api.elevenlabs.io` ünvanına gedir (CORS `*` — yoxlanılıb).
+  Səs `mp3_44100_128` formatında alınır və `Audio` ilə oxunur.
 - API açarı heç bir serverə getmir, yalnız sənin brauzerində saxlanılır.
   Açarı başqası ilə paylaşma; Google AI Studio-da həmin açarı istənilən vaxt silə bilərsən.
 - Fayllar: `index.html`, `styles.css`, `app.js`, `server.ps1`, `start.bat`.
