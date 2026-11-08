@@ -205,10 +205,9 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     settingsBtn: $('#settingsBtn'),
     clearBtn: $('#clearBtn'),
 
-    transcriptPanel: $('#transcriptPanel'),
-    transcriptBody: $('#transcriptBody'),
-    transcriptEmpty: $('#transcriptEmpty'),
-    transcriptCount: $('#transcriptCount'),
+    chatScroll: $('#chatScroll'),
+    chatFeed: $('#chatFeed'),
+    chatEmpty: $('#chatEmpty'),
     liveStrip: $('#liveStrip'),
     interimText: $('#interimText'),
     pendingInput: $('#pendingInput'),
@@ -216,8 +215,6 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     sendBtn: $('#sendBtn'),
     clearPendingBtn: $('#clearPendingBtn'),
 
-    answersBody: $('#answersBody'),
-    answersEmpty: $('#answersEmpty'),
     answersEmptyHint: $('#answersEmptyHint'),
     setupBtn: $('#setupBtn'),
 
@@ -279,7 +276,6 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     silenceTimer: null,
     restartTimer: null,
     startFailures: 0,
-    lineCount: 0,
     toastTimer: null,
     audio: null,
     ttsAbort: null,
@@ -320,8 +316,8 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
       : 'Mikrofonu susdur (Alt+M)';
   }
 
-  function scrollTranscript() {
-    el.transcriptBody.scrollTop = el.transcriptBody.scrollHeight;
+  function scrollChat() {
+    el.chatScroll.scrollTop = el.chatScroll.scrollHeight;
   }
 
   function renderInterim() {
@@ -354,24 +350,23 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     el.setupBtn.hidden = hasKey;
   }
 
-  /* ------------------------- müsahibə mətni ------------------------- */
-  function addLine(text) {
-    const line = document.createElement('div');
-    line.className = 'line';
-    const t = document.createElement('span');
-    t.className = 't';
-    t.textContent = timeNow();
-    const txt = document.createElement('span');
-    txt.className = 'txt';
+  /* ------------------------- chat baloncukları ------------------------- */
+  function addQuestionBubble(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble q';
+
+    const txt = document.createElement('div');
+    txt.className = 'bubble-text';
     txt.textContent = text;
 
-    line.append(t, txt);
-    el.transcriptBody.appendChild(line);
-    el.transcriptEmpty.hidden = true;
+    const meta = document.createElement('div');
+    meta.className = 'bubble-meta';
+    meta.textContent = timeNow();
 
-    state.lineCount += 1;
-    el.transcriptCount.textContent = `${state.lineCount} sətir`;
-    scrollTranscript();
+    bubble.append(txt, meta);
+    el.chatFeed.appendChild(bubble);
+    el.chatEmpty.hidden = true;
+    scrollChat();
   }
 
   function appendFinal(text) {
@@ -379,7 +374,6 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     if (!t) return;
     if (state.pending && norm(state.pending).endsWith(norm(t))) return; // təkrar nəticə
     state.pending = state.pending ? `${state.pending} ${t}` : t;
-    addLine(t);
     syncPending();
   }
 
@@ -847,26 +841,21 @@ ${cv.slice(0, CV_MAX)}
   }
 
   function createCard(question) {
-    el.answersEmpty.hidden = true;
+    el.chatEmpty.hidden = true;
 
     const card = document.createElement('article');
-    card.className = 'card streaming';
+    card.className = 'bubble a streaming';
     card.innerHTML = `
-      <div class="card-top">
-        <span class="card-q-label">Sual</span>
-        <span class="card-time"></span>
-      </div>
-      <p class="card-q"></p>
       <div class="card-a"></div>
       <div class="card-tools">
         <button class="mini speak" type="button" title="Cavabı ElevenLabs ilə səsləndir">🔊 Dinlə</button>
         <span class="card-lang" hidden></span>
         <button class="mini copy" type="button">Kopyala</button>
         <span class="card-state">yazılır…</span>
+        <span class="card-time"></span>
       </div>`;
 
     card.querySelector('.card-time').textContent = timeNow();
-    card.querySelector('.card-q').textContent = question;
 
     const aEl = card.querySelector('.card-a');
     const stateEl = card.querySelector('.card-state');
@@ -891,7 +880,7 @@ ${cv.slice(0, CV_MAX)}
       update(text) {
         full = text;
         aEl.innerHTML = renderAnswer(text) + '<span class="caret"></span>';
-        el.answersBody.scrollTop = 0;
+        scrollChat();
       },
       finish(text) {
         full = text;
@@ -960,8 +949,8 @@ ${cv.slice(0, CV_MAX)}
       speakText(parseAnswer(full).answer, api);
     });
 
-    el.answersBody.prepend(card);
-    el.answersBody.scrollTop = 0;
+    el.chatFeed.appendChild(card);
+    scrollChat();
 
     return api;
   }
@@ -1275,7 +1264,7 @@ ${cv.slice(0, CV_MAX)}
       } catch { /* ignore */ }
       state.audio = null;
     }
-    document.querySelectorAll('.card.speaking').forEach((c) => {
+    document.querySelectorAll('.bubble.a.speaking').forEach((c) => {
       c.classList.remove('speaking');
       const btn = c.querySelector('.mini.speak');
       if (btn) btn.textContent = '🔊 Dinlə';
@@ -1302,6 +1291,7 @@ ${cv.slice(0, CV_MAX)}
     el.pendingInput.value = '';
     renderInterim();
 
+    addQuestionBubble(q);
     const card = createCard(q);
     askGemini(q, card);
   }
@@ -1677,13 +1667,9 @@ ${cv.slice(0, CV_MAX)}
       state.pending = '';
       state.interim = '';
       state.history = [];
-      state.lineCount = 0;
       el.pendingInput.value = '';
-      el.transcriptBody.querySelectorAll('.line').forEach((n) => n.remove());
-      el.transcriptEmpty.hidden = false;
-      el.transcriptCount.textContent = '';
-      el.answersBody.querySelectorAll('.card').forEach((n) => n.remove());
-      el.answersEmpty.hidden = false;
+      el.chatFeed.querySelectorAll('.bubble').forEach((n) => n.remove());
+      el.chatEmpty.hidden = false;
       renderInterim();
       if (state.currentAbort) state.currentAbort.abort();
       toast('Təmizləndi.', 'ok');

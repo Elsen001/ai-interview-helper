@@ -16,6 +16,23 @@ Sənə yalnız cavabı oxumaq qalır.
 
 Serveri dayandırmaq üçün terminalda `Ctrl + C`.
 
+## Pəncərə rejimi + “həmişə üstdə”
+
+`start.bat` artıq brauzeri normal səhifə kimi deyil, **ayrıca çərçivəsiz pəncərədə** açır
+(`--app` rejimi — ünvan sətri, tab və menyu yoxdur). Həmçinin pəncərə **həmişə üstdə** qalır ki,
+müsahibə (Zoom/Meet) tam ekranda olsa belə Copilot görünsün. Görünüş isə **chat** formatındadır:
+müsahibə sualı solda, Gemini cavabı sağda baloncuk kimi görünür.
+
+- Pəncərə ölçüsünü dəyişmək: mühit dəyişəni `COPILOT_SIZE=500,900` (default `460,800`).
+- Həmişə üstdəni söndürmək: `NO_TOPMOST=1` mühit dəyişəni ilə işə sal
+  (PowerShell-də: `$env:NO_TOPMOST=1; .\start.bat`).
+- Alternativ (manual idarə): [Microsoft PowerToys](https://learn.microsoft.com/powertoys/) quraşdırıb
+  istənilən pəncərəni `Win+Ctrl+T` ilə üstə qoya / sökə bilərsən.
+
+> Nitq tanıma **Web Speech API**-yə əsaslanır və bu API yalnız Chrome/Edge-də işləyir.
+> Ona görə Copilot “əsl” exe deyil, Chrome/Edge-in çərçivəsiz pəncərəsidir — amma görünüş və
+> davranış native proqram kimidir.
+
 ## CV bölməsi (“özünü tanıt” sualı)
 
 Ayarlarda **CV / təcrübə** bölməsi var:

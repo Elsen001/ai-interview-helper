@@ -77,62 +77,40 @@
   </div>
 </header>
 
-<main class="layout">
-  <!-- ================= MÜSAHİBƏ ================= -->
-  <section class="panel" id="transcriptPanel">
-    <div class="panel-head">
-      <h2><span class="pulse"></span> Müsahibə (canlı)</h2>
-      <span class="hint" id="transcriptCount"></span>
-    </div>
-
-    <div class="panel-body" id="transcriptBody">
-      <div class="empty" id="transcriptEmpty">
+<main class="chat">
+  <div class="chat-scroll" id="chatScroll">
+    <div class="chat-feed" id="chatFeed">
+      <div class="chat-empty" id="chatEmpty">
         <div class="empty-ico">🎧</div>
-        <p><strong>Hələ heç nə yoxdur.</strong></p>
-        <p class="muted">“Start” düyməsinə bas və müsahibənin sualını dinlə. Dedikləri burada real vaxtda yazılacaq.</p>
-      </div>
-    </div>
-
-    <div class="live-strip" id="liveStrip" hidden>
-      <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span class="interim" id="interimText"></span>
-    </div>
-
-    <div class="pending-bar">
-      <div class="pending-head">
-        <span>Sual (göndərilməyə hazır)</span>
-        <span class="muted small" id="autoTag"></span>
-      </div>
-      <textarea id="pendingInput" rows="2" spellcheck="false"
-        placeholder="Danışdıqca burada yığılır. Lazım olsa redaktə et və Göndər."></textarea>
-      <div class="pending-actions">
-        <button class="btn ghost small" id="introBtnMain" type="button" title="CV-dən özünü təqdimat hazırla">✨ Özünü təqdim et</button>
-        <span class="spacer"></span>
-        <button class="btn ghost small" id="clearPendingBtn" type="button">Sualı sil</button>
-        <button class="btn accent" id="sendBtn" type="button">
-          Göndər
-          <kbd>Ctrl ↵</kbd>
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= CAVAB ================= -->
-  <section class="panel" id="answersPanel">
-    <div class="panel-head">
-      <h2>Gemini cavabı</h2>
-      <span class="hint">Oxu, de — qalanı Gemini edir</span>
-    </div>
-
-    <div class="panel-body answers" id="answersBody">
-      <div class="empty" id="answersEmpty">
-        <div class="empty-ico">✨</div>
-        <p><strong>Cavablar burada görünəcək.</strong></p>
+        <p><strong>Müsahibəyə başla.</strong></p>
         <p class="muted" id="answersEmptyHint">İlk müsahibə sualını gözləyirəm…</p>
         <button class="btn ghost small" id="setupBtn" type="button">API açarını qur</button>
       </div>
     </div>
-  </section>
+  </div>
+
+  <div class="live-strip" id="liveStrip" hidden>
+    <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="interim" id="interimText"></span>
+  </div>
+
+  <div class="chat-composer">
+    <div class="composer-head">
+      <span>Sual (göndərilməyə hazır)</span>
+      <span class="muted small" id="autoTag"></span>
+    </div>
+    <textarea id="pendingInput" rows="2" spellcheck="false"
+      placeholder="Danışdıqca burada yığılır. Lazım olsa redaktə et və Göndər."></textarea>
+    <div class="composer-actions">
+      <button class="btn ghost small" id="introBtnMain" type="button" title="CV-dən özünü təqdimat hazırla">✨ Özünü təqdim et</button>
+      <span class="spacer"></span>
+      <button class="btn ghost small" id="clearPendingBtn" type="button">Sualı sil</button>
+      <button class="btn accent" id="sendBtn" type="button">
+        Göndər
+        <kbd>Ctrl ↵</kbd>
+      </button>
+    </div>
+  </div>
 </main>
 
 <!-- ================= AYARLAR ================= -->
