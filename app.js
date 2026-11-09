@@ -8,6 +8,8 @@
   /* ------------------------- sabitlər ------------------------- */
   const STORE_KEY = 'interview-copilot.settings.v1';
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+  const ELEVEN_BASE = 'https://api.elevenlabs.io';
+  const ELEVEN_VOICE_FALLBACK = '21m00Tcm4TlvDq8ikWAM'; // Rachel (premade)
 
   const DEFAULT_PERSONA =
 `Sən canlı iş müsahibəsində namizədə kömək edən "interview copilot"-san.
@@ -49,6 +51,13 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     silenceMs: 1500,
     recogLang: 'en-US',
     autoPause: true,
+
+    elevenKey: '',
+    ttsAuto: true,
+    elevenModel: 'auto',
+    elevenVoiceEn: ELEVEN_VOICE_FALLBACK,
+    elevenVoiceAz: ELEVEN_VOICE_FALLBACK,
+    ttsSpeed: 1,
   };
 
   const CV_MAX = 20000;
@@ -75,6 +84,91 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /* ------------------------- dil → səs ------------------------- */
+  const AZ_WORDS = new Set([
+    'və', 'bir', 'bu', 'mən', 'sən', 'onun', 'üçün', 'ilə', 'çox', 'daha', 'olan', 'kimi',
+    'amma', 'həm', 'ki', 'var', 'yox', 'mənim', 'sizin', 'onlar', 'hansı', 'necə', 'nə',
+    'niyə', 'çünki', 'artıq', 'bütün', 'təcrübə', 'layihə', 'komanda', 'şirkət',
+    'edirəm', 'etdim', 'etmişəm', 'oldu', 'olub', 'çalışıram', 'çalışmışam', 'bacarıq',
+    'bilik', 'nəticə', 'məsuliyyət', 'istifadə', 'tətbiq', 'təmin', 'üzrə', 'dair',
+    'həmçinin', 'lakin', 'yalnız', 'yeni', 'böyük', 'kiçik', 'yaxşı', 'edə', 'edir',
+    'edən', 'verir', 'verdim', 'görə', 'başqa', 'digər', 'hazırda', 'ərzində', 'ildən',
+    'ildir', 'il', 'ay', 'həftə', 'əsas', 'müddət', 'sahə', 'komandada',
+  ]);
+
+  const EN_WORDS = new Set([
+    'the', 'and', 'a', 'an', 'to', 'of', 'in', 'for', 'with', 'i', 'my', 'me', 'we',
+    'our', 'is', 'was', 'have', 'has', 'had', 'that', 'this', 'these', 'those', 'on',
+    'as', 'at', 'be', 'been', 'it', 'you', 'your', 'from', 'by', 'are', 'were', 'will',
+    'would', 'can', 'could', 'should', 'do', 'does', 'did', 'not', 'but', 'or', 'so',
+    'because', 'about', 'into', 'over', 'after', 'before', 'more', 'most', 'also',
+    'they', 'their', 'he', 'she', 'his', 'her', 'them', 'there', 'here', 'when',
+    'what', 'how', 'why', 'which', 'who', 'work', 'worked', 'working', 'years', 'year',
+    'team', 'project', 'company', 'experience', 'using', 'built', 'led', 'managed',
+    'developed', 'responsible', 'strong', 'good', 'very', 'really',
+  ]);
+
+  // Cavabın dilini mətnin özündən təyin edir: EN və ya AZ.
+  // Diakritikasız yazılmış AZ mətni də tanısın deyə hərflər sadələşdirilir.
+  const azFold = (s) => String(s)
+    .replace(/ə/g, 'e')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ü/g, 'u')
+    .replace(/ç/g, 'c')
+    .replace(/ğ/g, 'g');
+
+  const AZ_WORDS_FOLDED = new Set([...AZ_WORDS].map(azFold));
+
+  function detectAnswerLang(text) {
+    const src = String(text || '');
+    const words = src.toLowerCase().match(/[\p{L}]+/gu) || [];
+
+    let az = (src.match(/[əğıöşüç]/gi) || []).length * 3;
+    let en = 0;
+    for (const w of words) {
+      if (AZ_WORDS_FOLDED.has(azFold(w))) az += 2;
+      if (EN_WORDS.has(w)) en += 1;
+    }
+
+    if (!words.length) return settings.answerLang === 'az' ? 'az' : 'en';
+    if (!az && !en) return settings.answerLang === 'az' ? 'az' : 'en';
+    return az >= 4 && az >= en ? 'az' : 'en';
+  }
+
+  const TTS_MODELS = new Set(['auto', 'eleven_flash_v2_5', 'eleven_multilingual_v2', 'eleven_v3']);
+
+  function resolveTtsModel(lang) {
+    let chosen = String(settings.elevenModel || 'auto').trim();
+    if (!TTS_MODELS.has(chosen)) chosen = 'auto';
+    // Bu iki model rəsmi olaraq az dilini dəstəkləmir → AZ cavabda v3-ə keç
+    if (lang === 'az' && (chosen === 'eleven_flash_v2_5' || chosen === 'eleven_multilingual_v2')) {
+      return 'eleven_v3';
+    }
+    if (chosen && chosen !== 'auto') return chosen;
+    return lang === 'az' ? 'eleven_v3' : 'eleven_flash_v2_5';
+  }
+
+  function resolveTtsVoice(lang) {
+    const preferred = lang === 'az' ? settings.elevenVoiceAz : settings.elevenVoiceEn;
+    return String(preferred || settings.elevenVoiceEn || ELEVEN_VOICE_FALLBACK).trim();
+  }
+
+  function ttsClean(text) {
+    return String(text || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/^#{1,6}\s*/gm, '')
+      .replace(/^\s*[-*•]\s+/gm, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/[*_~]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /* ------------------------- ayarlar ------------------------- */
@@ -111,10 +205,9 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     settingsBtn: $('#settingsBtn'),
     clearBtn: $('#clearBtn'),
 
-    transcriptPanel: $('#transcriptPanel'),
-    transcriptBody: $('#transcriptBody'),
-    transcriptEmpty: $('#transcriptEmpty'),
-    transcriptCount: $('#transcriptCount'),
+    chatScroll: $('#chatScroll'),
+    chatFeed: $('#chatFeed'),
+    chatEmpty: $('#chatEmpty'),
     liveStrip: $('#liveStrip'),
     interimText: $('#interimText'),
     pendingInput: $('#pendingInput'),
@@ -122,8 +215,6 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     sendBtn: $('#sendBtn'),
     clearPendingBtn: $('#clearPendingBtn'),
 
-    answersBody: $('#answersBody'),
-    answersEmpty: $('#answersEmpty'),
     answersEmptyHint: $('#answersEmptyHint'),
     setupBtn: $('#setupBtn'),
 
@@ -146,6 +237,19 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     recogLang: $('#recogLang'),
     testBtn: $('#testBtn'),
     testResult: $('#testResult'),
+
+    elevenKey: $('#elevenKey'),
+    toggleElevenKeyBtn: $('#toggleElevenKeyBtn'),
+    ttsAuto: $('#ttsAuto'),
+    elevenModel: $('#elevenModel'),
+    elevenVoiceEn: $('#elevenVoiceEn'),
+    elevenVoiceAz: $('#elevenVoiceAz'),
+    elevenVoiceList: $('#elevenVoiceList'),
+    loadVoicesBtn: $('#loadVoicesBtn'),
+    ttsSpeedRange: $('#ttsSpeedRange'),
+    ttsSpeedLabel: $('#ttsSpeedLabel'),
+    testTtsBtn: $('#testTtsBtn'),
+    ttsTestResult: $('#ttsTestResult'),
 
     cvDrop: $('#cvDrop'),
     cvFile: $('#cvFile'),
@@ -172,9 +276,12 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     silenceTimer: null,
     restartTimer: null,
     startFailures: 0,
-    lineCount: 0,
     toastTimer: null,
+    audio: null,
+    ttsAbort: null,
   };
+
+  const ttsCache = new Map();
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recog = null;
@@ -209,8 +316,8 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
       : 'Mikrofonu susdur (Alt+M)';
   }
 
-  function scrollTranscript() {
-    el.transcriptBody.scrollTop = el.transcriptBody.scrollHeight;
+  function scrollChat() {
+    el.chatScroll.scrollTop = el.chatScroll.scrollHeight;
   }
 
   function renderInterim() {
@@ -243,24 +350,23 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     el.setupBtn.hidden = hasKey;
   }
 
-  /* ------------------------- müsahibə mətni ------------------------- */
-  function addLine(text) {
-    const line = document.createElement('div');
-    line.className = 'line';
-    const t = document.createElement('span');
-    t.className = 't';
-    t.textContent = timeNow();
-    const txt = document.createElement('span');
-    txt.className = 'txt';
+  /* ------------------------- chat baloncukları ------------------------- */
+  function addQuestionBubble(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble q';
+
+    const txt = document.createElement('div');
+    txt.className = 'bubble-text';
     txt.textContent = text;
 
-    line.append(t, txt);
-    el.transcriptBody.appendChild(line);
-    el.transcriptEmpty.hidden = true;
+    const meta = document.createElement('div');
+    meta.className = 'bubble-meta';
+    meta.textContent = timeNow();
 
-    state.lineCount += 1;
-    el.transcriptCount.textContent = `${state.lineCount} sətir`;
-    scrollTranscript();
+    bubble.append(txt, meta);
+    el.chatFeed.appendChild(bubble);
+    el.chatEmpty.hidden = true;
+    scrollChat();
   }
 
   function appendFinal(text) {
@@ -268,7 +374,6 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     if (!t) return;
     if (state.pending && norm(state.pending).endsWith(norm(t))) return; // təkrar nəticə
     state.pending = state.pending ? `${state.pending} ${t}` : t;
-    addLine(t);
     syncPending();
   }
 
@@ -384,6 +489,7 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
   function stopListening() {
     state.wantListen = false;
     state.paused = false;
+    stopSpeech();
     clearTimeout(state.restartTimer);
     clearTimeout(state.silenceTimer);
     state.interim = '';
@@ -695,22 +801,29 @@ ${cv.slice(0, CV_MAX)}
     return msg || `HTTP ${res.status}`;
   }
 
-  function renderAnswer(raw) {
+  function parseAnswer(raw) {
     const text = String(raw || '').replace(/\r/g, '');
     let answer = text;
     let note = '';
 
-    const noteMatch = text.match(/(?:İZAH|IZAH|QEYD)\s*:/i);
+    const noteMatch = text.match(/(?:\*\*|__)?\s*(?:İZAH|IZAH|QEYD)\s*:\s*(?:\*\*|__)?/i);
     if (noteMatch) {
       answer = text.slice(0, noteMatch.index);
       note = text.slice(noteMatch.index + noteMatch[0].length);
     }
-    answer = answer.replace(/^\s*(?:ANSWER|CAVAB)\s*:\s*/i, '');
+    answer = answer
+      .replace(/^\s*(?:\*\*|__)?\s*(?:ANSWER|CAVAB)\s*:\s*(?:\*\*|__)?\s*/i, '')
+      .trim();
+    return { answer, note: note.trim() };
+  }
+
+  function renderAnswer(raw) {
+    const { answer, note } = parseAnswer(raw);
 
     let html = '';
-    if (answer.trim()) html += `<div class="ans-main">${formatText(answer.trim())}</div>`;
-    if (note.trim()) {
-      html += `<div class="ans-note"><span class="note-label">İzah</span>${formatText(note.trim())}</div>`;
+    if (answer) html += `<div class="ans-main">${formatText(answer)}</div>`;
+    if (note) {
+      html += `<div class="ans-note"><span class="note-label">İzah</span>${formatText(note)}</div>`;
     }
     return html;
   }
@@ -728,50 +841,38 @@ ${cv.slice(0, CV_MAX)}
   }
 
   function createCard(question) {
-    el.answersEmpty.hidden = true;
+    el.chatEmpty.hidden = true;
 
     const card = document.createElement('article');
-    card.className = 'card streaming';
+    card.className = 'bubble a streaming';
     card.innerHTML = `
-      <div class="card-top">
-        <span class="card-q-label">Sual</span>
-        <span class="card-time"></span>
-      </div>
-      <p class="card-q"></p>
       <div class="card-a"></div>
       <div class="card-tools">
+        <button class="mini speak" type="button" title="Cavabı ElevenLabs ilə səsləndir">🔊 Dinlə</button>
+        <span class="card-lang" hidden></span>
         <button class="mini copy" type="button">Kopyala</button>
         <span class="card-state">yazılır…</span>
+        <span class="card-time"></span>
       </div>`;
 
     card.querySelector('.card-time').textContent = timeNow();
-    card.querySelector('.card-q').textContent = question;
 
     const aEl = card.querySelector('.card-a');
     const stateEl = card.querySelector('.card-state');
     const copyBtn = card.querySelector('.mini.copy');
+    const speakBtn = card.querySelector('.mini.speak');
+    const langEl = card.querySelector('.card-lang');
 
     let full = '';
 
-    copyBtn.addEventListener('click', async () => {
-      const text = full || question;
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = 'Kopyalandı ✓';
-        setTimeout(() => { copyBtn.textContent = 'Kopyala'; }, 1400);
-      } catch {
-        toast('Kopyalamaq alınmadı.', 'err');
-      }
-    });
-
-    el.answersBody.prepend(card);
-    el.answersBody.scrollTop = 0;
-
-    return {
+    const api = {
       el: card,
       setStreaming() {
         card.classList.remove('error');
         card.classList.add('streaming');
+        card.classList.remove('speaking');
+        speakBtn.textContent = '🔊 Dinlə';
+        langEl.hidden = true;
         stateEl.textContent = 'yazılır…';
         full = '';
         aEl.innerHTML = '<span class="caret"></span>';
@@ -779,13 +880,14 @@ ${cv.slice(0, CV_MAX)}
       update(text) {
         full = text;
         aEl.innerHTML = renderAnswer(text) + '<span class="caret"></span>';
-        el.answersBody.scrollTop = 0;
+        scrollChat();
       },
       finish(text) {
         full = text;
         card.classList.remove('streaming');
         stateEl.textContent = `${text.trim().split(/\s+/).length} söz`;
         aEl.innerHTML = renderAnswer(text);
+        api.setLang(detectAnswerLang(parseAnswer(text).answer));
       },
       fail(message) {
         card.classList.remove('streaming');
@@ -799,12 +901,58 @@ ${cv.slice(0, CV_MAX)}
       },
       abort(partial) {
         card.classList.remove('streaming');
+        if (partial && partial.trim()) full = partial;
         stateEl.textContent = 'dayandırıldı';
         aEl.innerHTML = partial && partial.trim()
           ? renderAnswer(partial) + '<span class="caret"></span>'
           : '<p class="err-text">Cavab yarımçıq dayandırıldı.</p>';
       },
+      setLang(lang) {
+        langEl.hidden = false;
+        langEl.textContent = lang.toUpperCase();
+        langEl.dataset.lang = lang;
+        langEl.title = lang === 'az'
+          ? 'Cavab Azərbaycanca səsləndiriləcək'
+          : 'Cavab İngiliscə səsləndiriləcək';
+      },
+      setSpeaking(on) {
+        card.classList.toggle('speaking', !!on);
+        speakBtn.textContent = on ? '⏹ Dayandır' : '🔊 Dinlə';
+      },
+      get full() { return full; },
     };
+
+    copyBtn.addEventListener('click', async () => {
+      const text = full || question;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = 'Kopyalandı ✓';
+        setTimeout(() => { copyBtn.textContent = 'Kopyala'; }, 1400);
+      } catch {
+        toast('Kopyalamaq alınmadı.', 'err');
+      }
+    });
+
+    speakBtn.addEventListener('click', () => {
+      if (card.classList.contains('speaking')) {
+        stopSpeech();
+        return;
+      }
+      if (card.classList.contains('streaming')) {
+        toast('Cavab bitəndə səsləndir.', '');
+        return;
+      }
+      if (!full.trim()) {
+        toast('Cavab hələ hazır deyil.', '');
+        return;
+      }
+      speakText(parseAnswer(full).answer, api);
+    });
+
+    el.chatFeed.appendChild(card);
+    scrollChat();
+
+    return api;
   }
 
   async function askGemini(question, card) {
@@ -909,6 +1057,11 @@ ${cv.slice(0, CV_MAX)}
 
       // sən cavabı oxuyacaqsan — nitq tanıma sənin sözlərini tutmasın
       if (settings.autoPause && state.wantListen && !state.paused) pauseMic(true);
+
+      // cavabın dilinə uyğun səs (EN → Flash, AZ → v3)
+      if (settings.ttsAuto && (settings.elevenKey || '').trim()) {
+        speakText(parseAnswer(text).answer, card);
+      }
     } catch (err) {
       if (state.currentAbort !== ctrl || err?.name === 'AbortError') {
         card.abort(text);
@@ -924,9 +1077,199 @@ ${cv.slice(0, CV_MAX)}
   }
 
   function restoreStatus() {
-    if (state.paused) setStatus('Mikrofon susdurulub', 'warn');
+    if (state.audio) setStatus('Səs oxunur…', 'think');
+    else if (state.ttsAbort) setStatus('Səs hazırlanır…', 'think');
+    else if (state.paused) setStatus('Mikrofon susdurulub', 'warn');
     else if (state.wantListen) setStatus('Dinlənir…', 'listen');
     else setStatus('Hazır', 'idle');
+  }
+
+  /* ------------------------- ElevenLabs TTS ------------------------- */
+  function ttsCacheGet(key) {
+    const url = ttsCache.get(key);
+    if (!url) return null;
+    ttsCache.delete(key);
+    ttsCache.set(key, url);
+    return url;
+  }
+
+  function ttsCacheSet(key, url) {
+    ttsCache.set(key, url);
+    while (ttsCache.size > 12) {
+      const oldest = ttsCache.keys().next().value;
+      const oldUrl = ttsCache.get(oldest);
+      ttsCache.delete(oldest);
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+    }
+  }
+
+  async function describeElevenError(res) {
+    let raw = '';
+    try { raw = await res.text(); } catch { /* ignore */ }
+
+    let msg = '';
+    let status = '';
+    try {
+      const json = JSON.parse(raw);
+      const detail = json?.detail;
+      if (Array.isArray(detail)) {
+        msg = detail.map((d) => d?.msg).filter(Boolean).join('; ');
+      } else if (detail && typeof detail === 'object') {
+        status = detail.status || '';
+        msg = detail.message || '';
+      } else if (typeof detail === 'string') {
+        msg = detail;
+      }
+    } catch {
+      msg = raw.slice(0, 300);
+    }
+
+    if (res.status === 401) {
+      if (/quota|credit/i.test(`${status} ${msg}`)) {
+        return 'ElevenLabs limiti bitdi (pulsuz plan 10 000 simvol/ay).';
+      }
+      return 'ElevenLabs açarı yanlışdır. Ayarlardan yoxla.';
+    }
+    if (res.status === 429) return 'ElevenLabs rate limiti aşıldı — bir az gözlə.';
+    if (res.status === 404) return 'Voice ID tapılmadı — ayarlardan səsi yenilə.';
+    if (res.status === 422) return msg || 'Mətn/model parametrləri yanlışdır (422).';
+    return msg || `ElevenLabs HTTP ${res.status}`;
+  }
+
+  async function speakText(rawText, card) {
+    const key = (settings.elevenKey || '').trim();
+    if (!key) {
+      openSettings();
+      toast('Əvvəlcə ElevenLabs API açarını daxil et.', 'err');
+      return false;
+    }
+
+    const text = ttsClean(rawText).slice(0, 3000);
+    if (!text) return false;
+
+    // Cavabın dili → model, səs və language_code
+    const lang = detectAnswerLang(text);
+    const model = resolveTtsModel(lang);
+    const voiceId = resolveTtsVoice(lang);
+    const speed = Number(settings.ttsSpeed) || 1;
+    const cacheKey = `${voiceId}|${model}|${lang}|${speed}|${text}`;
+
+    stopSpeech();
+    card?.setSpeaking(true);
+    card?.setLang(lang);
+
+    // səs oxunarkən mikrofon öz səsimizi tutmasın
+    if (state.wantListen && !state.paused) {
+      pauseMic(false);
+      toast('Səs oxunur — mikrofon susduruldu. Alt+M ilə davam et.', '');
+    }
+    setStatus(lang === 'az' ? 'AZ səsi hazırlanır…' : 'Səs hazırlanır…', 'think');
+
+    let url = ttsCacheGet(cacheKey);
+
+    if (!url) {
+      const ctrl = new AbortController();
+      state.ttsAbort = ctrl;
+
+      try {
+        const body = {
+          text,
+          model_id: model,
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            use_speaker_boost: true,
+            speed,
+          },
+        };
+        // multilingual_v2 language_code qəbul etmir
+        if (model !== 'eleven_multilingual_v2') body.language_code = lang;
+
+        const res = await fetch(
+          `${ELEVEN_BASE}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'xi-api-key': key,
+            },
+            body: JSON.stringify(body),
+            signal: ctrl.signal,
+          }
+        );
+
+        if (!res.ok) throw new Error(await describeElevenError(res));
+
+        const blob = await res.blob();
+        url = URL.createObjectURL(blob);
+        ttsCacheSet(cacheKey, url);
+      } catch (err) {
+        if (err?.name !== 'AbortError') {
+          card?.setSpeaking(false);
+          toast(`Səs alınmadı: ${err?.message || err}`, 'err');
+          restoreStatus();
+        }
+        return false;
+      } finally {
+        if (state.ttsAbort === ctrl) state.ttsAbort = null;
+      }
+    }
+
+    const audio = new Audio(url);
+    state.audio = audio;
+    card?.setSpeaking(true);
+    setStatus(`Səslənir (${lang.toUpperCase()})…`, 'think');
+
+    audio.onended = () => {
+      if (state.audio !== audio) return;
+      state.audio = null;
+      card?.setSpeaking(false);
+      restoreStatus();
+    };
+
+    audio.onerror = () => {
+      if (state.audio !== audio) return;
+      state.audio = null;
+      card?.setSpeaking(false);
+      toast('Səsi oxutmaq alınmadı.', 'err');
+      restoreStatus();
+    };
+
+    try {
+      await audio.play();
+      return true;
+    } catch (err) {
+      state.audio = null;
+      card?.setSpeaking(false);
+      if (err?.name === 'NotAllowedError') {
+        toast('Brauzer avtomatik səsi blokladı — “🔊 Dinlə” düyməsinə bas.', '');
+      } else {
+        toast(`Səsi oxutmaq alınmadı: ${err?.message || err}`, 'err');
+      }
+      restoreStatus();
+      return false;
+    }
+  }
+
+  function stopSpeech() {
+    if (state.ttsAbort) {
+      try { state.ttsAbort.abort(); } catch { /* ignore */ }
+      state.ttsAbort = null;
+    }
+    if (state.audio) {
+      try {
+        state.audio.pause();
+        state.audio.currentTime = 0;
+      } catch { /* ignore */ }
+      state.audio = null;
+    }
+    document.querySelectorAll('.bubble.a.speaking').forEach((c) => {
+      c.classList.remove('speaking');
+      const btn = c.querySelector('.mini.speak');
+      if (btn) btn.textContent = '🔊 Dinlə';
+    });
+    restoreStatus();
   }
 
   function sendQuestion(text, source) {
@@ -941,12 +1284,14 @@ ${cv.slice(0, CV_MAX)}
       return;
     }
 
+    stopSpeech();
     clearTimeout(state.silenceTimer);
     state.pending = '';
     state.interim = '';
     el.pendingInput.value = '';
     renderInterim();
 
+    addQuestionBubble(q);
     const card = createCard(q);
     askGemini(q, card);
   }
@@ -972,6 +1317,16 @@ ${cv.slice(0, CV_MAX)}
     el.context.value = settings.context;
     el.persona.value = settings.persona || DEFAULT_PERSONA;
     el.recogLang.value = settings.recogLang;
+    el.elevenKey.value = settings.elevenKey || '';
+    el.ttsAuto.checked = !!settings.ttsAuto;
+    el.elevenModel.value = settings.elevenModel || 'auto';
+    if (!el.elevenModel.value) el.elevenModel.value = 'auto';
+    el.elevenVoiceEn.value = settings.elevenVoiceEn || '';
+    el.elevenVoiceAz.value = settings.elevenVoiceAz || '';
+    el.ttsSpeedRange.value = String(Number(settings.ttsSpeed) || 1);
+    el.ttsSpeedLabel.textContent = `${(Number(settings.ttsSpeed) || 1).toFixed(2)}×`;
+    el.ttsTestResult.textContent = '';
+    el.ttsTestResult.className = 'muted small';
     el.testResult.textContent = '';
     el.testResult.className = 'muted small';
   }
@@ -1119,6 +1474,47 @@ ${cv.slice(0, CV_MAX)}
     el.introBtnMain.addEventListener('click', askIntro);
 
     el.testBtn.addEventListener('click', testConnection);
+
+    // ---- ElevenLabs səs ----
+    el.elevenKey.addEventListener('input', () => {
+      settings.elevenKey = el.elevenKey.value.trim();
+      saveSettings();
+    });
+
+    el.toggleElevenKeyBtn.addEventListener('click', () => {
+      const hidden = el.elevenKey.type === 'password';
+      el.elevenKey.type = hidden ? 'text' : 'password';
+      el.toggleElevenKeyBtn.textContent = hidden ? 'Gizlət' : 'Göstər';
+    });
+
+    el.ttsAuto.addEventListener('change', () => {
+      settings.ttsAuto = el.ttsAuto.checked;
+      saveSettings();
+    });
+
+    el.elevenModel.addEventListener('change', () => {
+      settings.elevenModel = el.elevenModel.value;
+      saveSettings();
+    });
+
+    el.elevenVoiceEn.addEventListener('input', () => {
+      settings.elevenVoiceEn = el.elevenVoiceEn.value.trim();
+      saveSettings();
+    });
+
+    el.elevenVoiceAz.addEventListener('input', () => {
+      settings.elevenVoiceAz = el.elevenVoiceAz.value.trim();
+      saveSettings();
+    });
+
+    el.ttsSpeedRange.addEventListener('input', () => {
+      settings.ttsSpeed = Number(el.ttsSpeedRange.value) || 1;
+      el.ttsSpeedLabel.textContent = `${settings.ttsSpeed.toFixed(2)}×`;
+      saveSettings();
+    });
+
+    el.loadVoicesBtn.addEventListener('click', loadElevenVoices);
+    el.testTtsBtn.addEventListener('click', testTts);
   }
 
   async function refreshModels() {
@@ -1192,6 +1588,56 @@ ${cv.slice(0, CV_MAX)}
     }
   }
 
+  async function loadElevenVoices() {
+    const key = (el.elevenKey.value || settings.elevenKey || '').trim();
+    if (!key) {
+      toast('Əvvəlcə ElevenLabs açarını yaz.', 'err');
+      return;
+    }
+
+    el.loadVoicesBtn.disabled = true;
+    try {
+      const res = await fetch(`${ELEVEN_BASE}/v2/voices?page_size=100`, {
+        headers: { 'xi-api-key': key },
+      });
+      if (!res.ok) throw new Error(await describeElevenError(res));
+
+      const json = await res.json();
+      const voices = json.voices || [];
+      el.elevenVoiceList.innerHTML = '';
+      voices.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v.voice_id;
+        opt.label = v.name || v.voice_id;
+        opt.textContent = v.name || v.voice_id;
+        el.elevenVoiceList.appendChild(opt);
+      });
+      toast(`${voices.length} səs yükləndi.`, 'ok');
+    } catch (err) {
+      toast(`Səslər yüklənmədi: ${err.message}`, 'err');
+    } finally {
+      el.loadVoicesBtn.disabled = false;
+    }
+  }
+
+  async function testTts() {
+    if (!(settings.elevenKey || '').trim()) {
+      el.ttsTestResult.className = 'err small';
+      el.ttsTestResult.textContent = 'ElevenLabs açarı boşdur.';
+      return;
+    }
+
+    el.ttsTestResult.className = 'muted small';
+    el.ttsTestResult.textContent = 'səs yoxlanılır…';
+
+    const ok = await speakText('Hello! This is how the interview copilot will sound.', null);
+
+    el.ttsTestResult.className = ok ? 'ok small' : 'err small';
+    el.ttsTestResult.textContent = ok
+      ? '✓ Səs oxunur. Azərbaycanca üçün cavabı AZ rejimində yoxla.'
+      : 'Səs alınmadı — açarı/modeli yoxla.';
+  }
+
   /* ------------------------- hadisələr ------------------------- */
   function bindApp() {
     el.startBtn.addEventListener('click', toggleListening);
@@ -1217,16 +1663,13 @@ ${cv.slice(0, CV_MAX)}
 
     el.clearBtn.addEventListener('click', () => {
       if (!confirm('Bütün mətn və cavablar silinsin?')) return;
+      stopSpeech();
       state.pending = '';
       state.interim = '';
       state.history = [];
-      state.lineCount = 0;
       el.pendingInput.value = '';
-      el.transcriptBody.querySelectorAll('.line').forEach((n) => n.remove());
-      el.transcriptEmpty.hidden = false;
-      el.transcriptCount.textContent = '';
-      el.answersBody.querySelectorAll('.card').forEach((n) => n.remove());
-      el.answersEmpty.hidden = false;
+      el.chatFeed.querySelectorAll('.bubble').forEach((n) => n.remove());
+      el.chatEmpty.hidden = false;
       renderInterim();
       if (state.currentAbort) state.currentAbort.abort();
       toast('Təmizləndi.', 'ok');
@@ -1241,12 +1684,14 @@ ${cv.slice(0, CV_MAX)}
         e.preventDefault();
         toggleMic();
       }
-      if (e.key === 'Escape' && !el.dialog.open && state.wantListen) {
-        stopListening();
+      if (e.key === 'Escape' && !el.dialog.open) {
+        stopSpeech();
+        if (state.wantListen) stopListening();
       }
     });
 
     window.addEventListener('beforeunload', () => {
+      stopSpeech();
       if (state.wantListen) {
         try { recog?.abort(); } catch { /* ignore */ }
       }

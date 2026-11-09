@@ -55,9 +55,86 @@ function Send-Text {
   Send-Response -Stream $Stream -Status $Status -ContentType 'text/plain; charset=utf-8' -Body $bytes
 }
 
+# --- Win32: pəncərəni həmişə üstdə (topmost) saxlamaq üçün ---
+$winTopSource = @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class WinTop {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    // Brauzer (Chrome/Edge) app pəncərəsini tapır — konsol/VSCode kimi pəncərələri keçir.
+    public static IntPtr FindBrowserWindow(string part) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate (IntPtr hWnd, IntPtr lParam) {
+            if (!IsWindowVisible(hWnd)) return true;
+            int len = GetWindowTextLength(hWnd);
+            if (len == 0) return true;
+            StringBuilder sb = new StringBuilder(len + 1);
+            GetWindowText(hWnd, sb, sb.Capacity);
+            if (sb.ToString().IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0) return true;
+
+            StringBuilder cn = new StringBuilder(256);
+            GetClassName(hWnd, cn, cn.Capacity);
+            string cls = cn.ToString();
+            if (cls.StartsWith("Chrome_WidgetWin") || cls == "ApplicationFrameWindow" || cls == "MozillaWindowClass") {
+                found = hWnd;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+}
+"@
+
+if (-not ('WinTop' -as [type])) {
+  try { Add-Type -TypeDefinition $winTopSource -ErrorAction Stop } catch { }
+}
+
+function Test-AndPinTopmost {
+  param([string]$TitlePart = 'Copilot')
+
+  try {
+    $hwnd = [WinTop]::FindBrowserWindow($TitlePart)
+    if ($hwnd -eq [IntPtr]::Zero) { return $false }
+
+    $HWND_TOPMOST = [IntPtr](-1)
+    $SWP_NOMOVE = 0x0002
+    $SWP_NOSIZE = 0x0001
+    [WinTop]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, ($SWP_NOMOVE -bor $SWP_NOSIZE)) | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 function Open-CopilotBrowser {
   param([string]$Url)
   if ($env:NO_BROWSER) { return }
+
+  # --app: brauzer çərçivəsiz ayrıca pəncərə (ünvan sətri/tab olmadan)
+  $size = if ($env:COPILOT_SIZE) { $env:COPILOT_SIZE } else { '460,800' }
+  $flags = @("--app=$Url", "--window-size=$size")
 
   $candidates = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
@@ -67,12 +144,17 @@ function Open-CopilotBrowser {
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
   )
 
+  $launched = $false
   foreach ($exe in $candidates) {
     if ($exe -and (Test-Path -LiteralPath $exe)) {
-      try { Start-Process -FilePath $exe -ArgumentList $Url; return } catch { }
+      try { Start-Process -FilePath $exe -ArgumentList $flags; $launched = $true; break } catch { }
     }
   }
-  try { Start-Process $Url } catch { }
+  if (-not $launched) {
+    try { Start-Process $Url; $launched = $true } catch { }
+  }
+
+  # pəncərə həmişə-üstdə server dövrəsində (aşağıda) yapışdırılır
 }
 
 try {
@@ -91,12 +173,25 @@ Write-Host ""
 Write-Host "  Interview Copilot" -ForegroundColor Cyan
 Write-Host "  $url" -ForegroundColor Green
 Write-Host "  Files: $root" -ForegroundColor DarkGray
+Write-Host "  Window: app mode, always on top (off: NO_TOPMOST=1)" -ForegroundColor DarkGray
 Write-Host "  Stop: Ctrl+C" -ForegroundColor DarkGray
 Write-Host ""
 
 Open-CopilotBrowser -Url $url
 
+$pinned = $false
 while ($true) {
+  # Səhifə yüklənib pəncərə başlığı görünən kimi həmişə-üstdə yapışdır.
+  # Server dövrəsi ilə eyni yerdə işləyir — pəncərə tapılana qədər təkrar yoxlanır.
+  if (-not $pinned -and -not $env:NO_TOPMOST) {
+    $pinned = Test-AndPinTopmost
+  }
+
+  if (-not $listener.Pending()) {
+    Start-Sleep -Milliseconds 150
+    continue
+  }
+
   $client = $null
   try {
     $client = $listener.AcceptTcpClient()
