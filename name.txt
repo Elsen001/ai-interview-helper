@@ -1,0 +1,7 @@
+Variant: şəxsi video loop. Bunu elə quracağam ki, loop hiss olunmasın — bir neçə klip + çarpaz keçid (crossfade), təsadüfi sıra, trim və fit idarəsi ilə. Əvvəlcə mövcud server/avatar kodunu oxuyuram.
+
+İndi implementasiyaya başlayıram. Əvvəlcə server tərəfi: video klip saxlama, Range ilə yayım və konfiqurasiya sinxronizasiyası.
+
+Server tərəfi hazırdır. İndi avatar səhifəsinə video səhnəsi və idarəetmə əlavə edirəm.
+
+İndi avatar.js-də video rejimini qururam. Əvvəlcə ayarlar və çizim keçidi:
