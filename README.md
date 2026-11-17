@@ -74,6 +74,7 @@ Bundan sonra:
 | **Sualı sil** | Yığılmış sualı təmizləyir |
 | **Kopyala** | Cavabı buferə kopyalayır |
 | **🔊 Dinlə** | Cavabı ElevenLabs ilə səsləndirir (dil avtomatik seçilir) |
+| **🎭 Avatar** | Virtual insanı ayrı pəncərədə açır (OBS/Zoom üçün) |
 | **Təmizlə** | Bütün mətn və cavabları silir |
 | `Esc` | Dinləməni dayandırır |
 
@@ -126,6 +127,76 @@ Səs dili ayardakı “Cavab dili”nə deyil, **Copilot-un həqiqətən yazdı�
 
 > Açar yalnız brauzerdə (`localStorage`) saxlanılır. Layihəni publik serverdə yerləşdirsən, açarı server proxy arxasına keçir.
 
+## Virtual insan (avatar) — Zoom kamerası
+
+Copilot artıq **virtual insan** çıxara bilir: ayrı pəncərədə (və ya OBS-də) danışan personaj — dodaqları
+**real səslə sinxron** hərəkət edir, gözləri qırpılır, başı yumşaq yellənir. Onu OBS Virtual Camera ilə
+Zoom/Meet/Teams-ə “kamera” kimi verirsən. Tam **offline** işləyir, heç bir əlavə API xərci yoxdur.
+
+### 1. Avatarı aç
+
+- Sağ üstdəki **🎭** düyməsi, ya da **Ayarlar → Virtual insan → “🎭 Avatarı aç”**.
+- Ayrı pəncərə açılır (`/avatar.html`). Görünüşü orada dəyişirsən: **4 personaj**, ad, fon, səs səviyyəsi,
+  altyazı, dodaqların mikrofonla hərəkəti.
+- Hər şey brauzerin `localStorage`-ında saxlanılır.
+
+### 2. OBS → Zoom (video)
+
+1. [OBS Studio](https://obsproject.com/) quraşdır (pulsuz).
+2. **Sources → + → Browser**:
+   - URL: `http://localhost:5188/avatar.html?obs=1`
+   - Width **1280**, Height **720**
+   - **Control audio via OBS** işarələ (səsi OBS mikserinə verir).
+3. OBS-də **Start Virtual Camera**.
+4. Zoom → Settings → Video → Camera: **OBS Virtual Camera**.
+
+> `?obs=1` rejimində idarə paneli və “⚙” düyməsi gizlədilir — OBS səhnəsində təmiz görünüş qalır.
+> Əlavə parametrlər: `?bg=green` (chroma key), `?bg=transparent` (şəffaf fon), `?hud=0` (ad lövhəsi yox),
+> `?captions=1` (altyazı açıq).
+
+### 3. Səs (vacib)
+
+OBS **virtual kamera yalnız video** ötürür — səs ayrıca yol tələb edir. İki variant:
+
+| Variant | Nə lazımdır | Nəticə |
+| --- | --- | --- |
+| **Sadə** | OBS → Audio Mixer → Browser → **Advanced Audio Properties → Audio Monitoring: Monitor and Output** | Səs dinamiklərə gedir; Zoom mikrofonu onu tutur (keyfiyyət orta, əks-səda mümkün) |
+| **Tövsiyə olunan** | [VB-CABLE](https://vb-audio.com/Cable/) quraşdır → OBS-də Monitoring device: **CABLE Input** → Zoom mikrofonu: **CABLE Output** | Təmiz rəqəmsal səs, əks-səda yoxdur |
+
+Əgər səs **yalnız** avatar pəncərəsindən çıxsın istəyirsən (lokal oxutma söndürülsün):
+**Ayarlar → Virtual insan → “Səsi yalnız avatardan çıxar”**. OBS səsi götürəndə bunu aç.
+
+> ElevenLabs açarı yoxdursa avatar yenə danışır — dodaqlar mətn ritminə görə hərəkət edir, sadəcə səs olmur.
+> “🔊 Dinlə” düyməsi ilə səsləndirəndə isə avatar həmin mp3-ü OBS vasitəsilə oxuyur və dodaqlar audio ilə dəqiq sinxronlaşır.
+
+### 4. Dodaqlar sənin səsinlə
+
+**“Dodaqlar mikrofonla hərəkət etsin”** açıqdırsa, sən danışanda avatarın ağzı sənin səs səviyyənə uyğun hərəkət edir
+(mikrofon icazəsi tələb olunur). Müsahibəçi sual verəndə avatar “dinləyir” vəziyyətinə keçir, cavab yazılarkən
+“düşünür”, səsləndirmə zamanı isə danışır.
+
+### 5. Realistik AI avatar (istəyə bağlı, pullu)
+
+Prosedural personaj əvəzinə HeyGen / D-ID kimi real görünüşlü danışan insan qoşmaq üçün hazır interfeys var.
+`avatar.js` faylında provider qeydiyyatı:
+
+```js
+window.CopilotAvatar.registerProvider('heygen', (canvas) => {
+  // Provider kontraktı:
+  //   setMode('idle' | 'listening' | 'thinking' | 'speaking')
+  //   setLevel(0..1)       — mikrofon səviyyəsi
+  //   setCaption(text)     — altyazı
+  //   setConnected(bool)   — server bağlantısı
+  //   setSettings(settings)
+  //   draw(dt)             — hər kadr (video elementini canvas-a çək və s.)
+  //   destroy()
+  return myHeyGenProvider;
+});
+```
+
+Sonra `avatar.js`-də provider seçimini `'heygen'` et və API açarını **server tərəfində** saxla
+(brauzerdə açıq açar paylaşmaq təhlükəlidir). HeyGen streaming API ayrıca abunə tələb edir.
+
 ## Texniki qeydlər
 
 - Nitq tanıma **Web Speech API** ilə işləyir → yalnız **Chrome / Edge** (Firefox dəstəkləmir) və internet lazımdır.
@@ -135,7 +206,7 @@ Səs dili ayardakı “Cavab dili”nə deyil, **Copilot-un həqiqətən yazdı�
   Səs `mp3_44100_128` formatında alınır və `Audio` ilə oxunur.
 - API açarı heç bir serverə getmir, yalnız sənin brauzerində saxlanılır.
   Açarı başqası ilə paylaşma; Google AI Studio-da həmin açarı istənilən vaxt silə bilərsən.
-- Fayllar: `index.html`, `styles.css`, `app.js`, `server.ps1`, `start.bat`.
+- Fayllar: `index.html`, `styles.css`, `app.js`, `server.ps1`, `start.bat`, `avatar.html`, `avatar.css`, `avatar.js`.
 
 ## Problemlər
 
@@ -150,3 +221,8 @@ Səs dili ayardakı “Cavab dili”nə deyil, **Copilot-un həqiqətən yazdı�
 | Heç nə yazılmır | Dil `en-US`-dir? İnternet var? Chrome-dadır? |
 | Cavab gecikir | `gemini-2.5-flash-lite` seç, sükut müddətini azalt |
 | Öz sözlərim sual kimi gedir | Cavab oxuyarkən `Alt+M` ilə mikrofonu susdur |
+| OBS-də avatar boş görünür | Server işləyir? URL `http://localhost:5188/avatar.html?obs=1`? Browser source-u yenilə |
+| Zoom-da avatar görünmür | OBS-də **Start Virtual Camera** basılıb? Zoom kamerası **OBS Virtual Camera**-dır? |
+| Zoom-da səs gəlmir | OBS Monitoring və ya **VB-CABLE**; “Səsi yalnız avatardan çıxar” açıq olsun |
+| Avatarın dodaqları hərəkət etmir | Ayarlarda “Avatarı Copilot ilə sinxronlaşdır” açıqdır? Avatar pəncərəsi açıqdır? |
+| Avatar pəncərəsində səs yoxdur | Brauzer səsi bloklayıb — **“Səsi aktivləşdir”** düyməsinə bas |

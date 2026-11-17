@@ -44,8 +44,16 @@ function Send-Response {
           "X-Content-Type-Options: nosniff`r`n" +
           "Connection: close`r`n`r`n"
   $headBytes = [System.Text.Encoding]::ASCII.GetBytes($head)
-  $Stream.Write($headBytes, 0, $headBytes.Length)
-  if ($Body.Length -gt 0) { $Stream.Write($Body, 0, $Body.Length) }
+
+  # başlıq + gövdəni TƏK paketdə göndər (delayed-ACK gecikməsinin qarşısını alır)
+  if ($Body.Length -gt 0) {
+    $all = New-Object byte[] ($headBytes.Length + $Body.Length)
+    [Array]::Copy($headBytes, 0, $all, 0, $headBytes.Length)
+    [Array]::Copy($Body, 0, $all, $headBytes.Length, $Body.Length)
+    $Stream.Write($all, 0, $all.Length)
+  } else {
+    $Stream.Write($headBytes, 0, $headBytes.Length)
+  }
   $Stream.Flush()
 }
 
@@ -54,6 +62,22 @@ function Send-Text {
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
   Send-Response -Stream $Stream -Status $Status -ContentType 'text/plain; charset=utf-8' -Body $bytes
 }
+
+function Send-Json {
+  param([System.IO.Stream]$Stream, [string]$Status, [string]$Json)
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Json)
+  Send-Response -Stream $Stream -Status $Status -ContentType 'application/json; charset=utf-8' -Body $bytes
+}
+
+# ---------- avatar hadisə mərkəzi (yaddaşda) ----------
+$script:avSeq = 0
+$script:avEvents = New-Object System.Collections.ArrayList
+$script:avState = 'idle'
+$script:avLevel = 0.0
+$script:avLevelAt = [DateTime]::MinValue
+$script:avAudio = @{}
+$script:avAudioAt = @{}
+$script:avLastPoll = [DateTime]::MinValue
 
 # --- Win32: pəncərəni həmişə üstdə (topmost) saxlamaq üçün ---
 $winTopSource = @"
@@ -174,6 +198,7 @@ Write-Host "  Interview Copilot" -ForegroundColor Cyan
 Write-Host "  $url" -ForegroundColor Green
 Write-Host "  Files: $root" -ForegroundColor DarkGray
 Write-Host "  Window: app mode, always on top (off: NO_TOPMOST=1)" -ForegroundColor DarkGray
+Write-Host "  Avatar: ${url}avatar.html  (OBS: ${url}avatar.html?obs=1)" -ForegroundColor DarkGray
 Write-Host "  Stop: Ctrl+C" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -188,7 +213,7 @@ while ($true) {
   }
 
   if (-not $listener.Pending()) {
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds 20
     continue
   }
 
@@ -203,30 +228,206 @@ while ($true) {
 
     $client.ReceiveTimeout = 5000
     $client.SendTimeout = 5000
+    $client.NoDelay = $true
 
     $stream = $client.GetStream()
-    $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII, $false, 2048, $true)
 
-    $requestLine = $reader.ReadLine()
+    # ---------- sorğunu bayt səviyyəsində oxu (başlıq + gövdə) ----------
+    $buf = New-Object byte[] 8192
+    $headerBytes = New-Object 'System.Collections.Generic.List[byte]'
+    $headerEnd = -1
+    $bodyStart = 0
+    $guard = 0
+
+    while ($headerEnd -lt 0 -and $guard -lt 64) {
+      $guard++
+      $n = $stream.Read($buf, 0, $buf.Length)
+      if ($n -le 0) { break }
+      for ($i = 0; $i -lt $n; $i++) { $headerBytes.Add($buf[$i]) }
+      for ($i = 3; $i -lt $headerBytes.Count; $i++) {
+        if ($headerBytes[$i - 3] -eq 13 -and $headerBytes[$i - 2] -eq 10 -and
+            $headerBytes[$i - 1] -eq 13 -and $headerBytes[$i] -eq 10) {
+          $headerEnd = $i - 3
+          $bodyStart = $i + 1
+          break
+        }
+      }
+    }
+
+    if ($headerEnd -lt 0) { $client.Close(); continue }
+
+    $allBytes = $headerBytes.ToArray()
+    $headerText = [System.Text.Encoding]::ASCII.GetString($allBytes, 0, $headerEnd)
+    $lines = $headerText -split "`r`n"
+    $requestLine = $lines[0]
     if ([string]::IsNullOrWhiteSpace($requestLine)) { $client.Close(); continue }
 
-    # consume the remaining headers
-    while ($true) {
-      $line = $reader.ReadLine()
-      if ($null -eq $line -or $line -eq '') { break }
+    $contentLength = 0
+    for ($i = 1; $i -lt $lines.Length; $i++) {
+      if ($lines[$i] -match '^(?i)content-length:\s*(\d+)\s*$') { $contentLength = [int]$matches[1] }
+    }
+    if ($contentLength -gt 6291456) {
+      Send-Text -Stream $stream -Status '413 Payload Too Large' -Text 'Too large'
+      $client.Close(); continue
+    }
+
+    $bodyBytes = New-Object byte[] $contentLength
+    $got = 0
+    $already = $allBytes.Length - $bodyStart
+    if ($already -gt 0) {
+      $got = [Math]::Min($already, $contentLength)
+      if ($got -gt 0) { [Array]::Copy($allBytes, $bodyStart, $bodyBytes, 0, $got) }
+    }
+    while ($got -lt $contentLength) {
+      $n = $stream.Read($bodyBytes, $got, $contentLength - $got)
+      if ($n -le 0) { break }
+      $got += $n
+    }
+    if ($got -lt $contentLength) {
+      if ($got -eq 0) { $bodyBytes = [byte[]]@() } else { $bodyBytes = $bodyBytes[0..($got - 1)] }
     }
 
     $parts = $requestLine.Split(' ')
     $method = $parts[0].ToUpper()
     $target = $parts[1]
 
+    $path = ($target -split '\?')[0]
+    $query = ''
+    if ($target.Contains('?')) { $query = $target.Substring($target.IndexOf('?') + 1) }
+    try { $path = [System.Uri]::UnescapeDataString($path) } catch { }
+
+    # ---------- Virtual insan (avatar) API ----------
+    if ($path.StartsWith('/api/avatar/')) {
+      $action = $path.Substring('/api/avatar/'.Length).TrimEnd('/')
+      $nowUtc = [DateTime]::UtcNow
+
+      # köhnəlmiş hadisə və audioları təmizlə
+      for ($i = $script:avEvents.Count - 1; $i -ge 0; $i--) {
+        if (($nowUtc - $script:avEvents[$i].at).TotalSeconds -gt 300) { $script:avEvents.RemoveAt($i) }
+      }
+      foreach ($k in @($script:avAudio.Keys)) {
+        if (($nowUtc - $script:avAudioAt[$k]).TotalMinutes -gt 10) {
+          $script:avAudio.Remove($k); $script:avAudioAt.Remove($k)
+        }
+      }
+
+      if ($action -eq 'event' -and $method -eq 'POST') {
+        $obj = $null
+        try { $obj = [System.Text.Encoding]::UTF8.GetString($bodyBytes) | ConvertFrom-Json } catch { }
+        if ($obj -and $obj.type) {
+          $script:avSeq++
+          [void]$script:avEvents.Add(@{
+            seq   = $script:avSeq
+            type  = [string]$obj.type
+            text  = [string]$obj.text
+            lang  = [string]$obj.lang
+            audio = [string]$obj.audio
+            at    = $nowUtc
+          })
+          while ($script:avEvents.Count -gt 40) { $script:avEvents.RemoveAt(0) }
+          Send-Json -Stream $stream -Status '200 OK' -Json ('{"ok":true,"seq":' + $script:avSeq + '}')
+        } else {
+          Send-Text -Stream $stream -Status '400 Bad Request' -Text 'Bad event'
+        }
+        $client.Close(); continue
+      }
+
+      if ($action -eq 'state' -and $method -eq 'POST') {
+        $obj = $null
+        try { $obj = [System.Text.Encoding]::UTF8.GetString($bodyBytes) | ConvertFrom-Json } catch { }
+        if ($obj) {
+          if ($obj.state) { $script:avState = [string]$obj.state }
+          if ($null -ne $obj.level) {
+            $script:avLevel = [Math]::Min(1.0, [Math]::Max(0.0, [double]$obj.level))
+            $script:avLevelAt = $nowUtc
+          }
+          Send-Json -Stream $stream -Status '200 OK' -Json '{"ok":true}'
+        } else {
+          Send-Text -Stream $stream -Status '400 Bad Request' -Text 'Bad state'
+        }
+        $client.Close(); continue
+      }
+
+      if ($action -eq 'poll' -and ($method -eq 'GET' -or $method -eq 'HEAD')) {
+        $since = -1
+        if ($query -match '(?:^|&)since=(\d+)') { $since = [int]$matches[1] }
+        # ilk qoşulmada (since=latest) köhnə hadisələri təkrar göndərmirik
+        if ($since -lt 0) { $since = $script:avSeq }
+
+        $items = @()
+        foreach ($e in $script:avEvents) {
+          if ($e.seq -gt $since) {
+            $out = @{ seq = $e.seq; type = $e.type; text = $e.text; lang = $e.lang; audio = $e.audio }
+            $items += ($out | ConvertTo-Json -Compress -Depth 5)
+          }
+        }
+
+        $script:avLastPoll = $nowUtc
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        $levelStr = ([double]$script:avLevel).ToString('0.###', $inv)
+        $levelAge = -1
+        if ($script:avLevelAt -ne [DateTime]::MinValue) {
+          $levelAge = [int]($nowUtc - $script:avLevelAt).TotalMilliseconds
+        }
+        $stateJson = ConvertTo-Json -Compress -InputObject ([string]$script:avState)
+        $json = '{"ok":true,"seq":' + $script:avSeq + ',"state":' + $stateJson +
+                ',"level":' + $levelStr + ',"levelAge":' + $levelAge +
+                ',"events":[' + ($items -join ',') + ']}'
+        Send-Json -Stream $stream -Status '200 OK' -Json $json
+        $client.Close(); continue
+      }
+
+      if ($action -eq 'audio' -and $method -eq 'POST') {
+        if ($bodyBytes.Length -lt 64) {
+          Send-Text -Stream $stream -Status '400 Bad Request' -Text 'Empty audio'
+        } else {
+          $id = [guid]::NewGuid().ToString('N')
+          $script:avAudio[$id] = $bodyBytes
+          $script:avAudioAt[$id] = $nowUtc
+          while ($script:avAudio.Count -gt 12) {
+            $oldest = $null
+            $oldestAt = [DateTime]::MaxValue
+            foreach ($k in @($script:avAudio.Keys)) {
+              if ($script:avAudioAt[$k] -lt $oldestAt) { $oldestAt = $script:avAudioAt[$k]; $oldest = $k }
+            }
+            if (-not $oldest) { break }
+            $script:avAudio.Remove($oldest); $script:avAudioAt.Remove($oldest)
+          }
+          Send-Json -Stream $stream -Status '200 OK' -Json ('{"ok":true,"id":"' + $id + '"}')
+        }
+        $client.Close(); continue
+      }
+
+      if ($action.StartsWith('audio/') -and ($method -eq 'GET' -or $method -eq 'HEAD')) {
+        $id = $action.Substring(6)
+        if ($script:avAudio.ContainsKey($id)) {
+          $bytesOut = [byte[]]$script:avAudio[$id]
+          if ($method -eq 'HEAD') { $bytesOut = [byte[]]@() }
+          Send-Response -Stream $stream -Status '200 OK' -ContentType 'audio/mpeg' -Body $bytesOut
+        } else {
+          Send-Text -Stream $stream -Status '404 Not Found' -Text 'audio yoxdur'
+        }
+        $client.Close(); continue
+      }
+
+      if ($action -eq 'ping') {
+        $age = -1
+        if ($script:avLastPoll -ne [DateTime]::MinValue) {
+          $age = [int]($nowUtc - $script:avLastPoll).TotalMilliseconds
+        }
+        Send-Json -Stream $stream -Status '200 OK' -Json ('{"ok":true,"ageMs":' + $age + '}')
+        $client.Close(); continue
+      }
+
+      Send-Text -Stream $stream -Status '404 Not Found' -Text 'API yoxdur'
+      $client.Close(); continue
+    }
+
+    # ---------- statik fayllar ----------
     if ($method -ne 'GET' -and $method -ne 'HEAD') {
       Send-Text -Stream $stream -Status '405 Method Not Allowed' -Text 'Method not allowed'
       $client.Close(); continue
     }
-
-    $path = ($target -split '\?')[0]
-    try { $path = [System.Uri]::UnescapeDataString($path) } catch { }
 
     if ($path -eq '/') { $path = '/index.html' }
     if ($path -eq '/favicon.ico') {

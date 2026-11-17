@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Virtual Human · Interview Copilot</title>
+<link rel="stylesheet" href="./avatar.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237c5cff'/%3E%3Ccircle cx='16' cy='13' r='5' fill='%23fff'/%3E%3Cpath d='M6 26c0-5.5 4.5-9 10-9s10 3.5 10 9' fill='%23fff'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+<canvas id="stage" aria-label="Virtual insan"></canvas>
+
+<!-- idarə paneli (OBS rejimində gizlədilir) -->
+<aside id="panel" class="panel" hidden>
+  <header class="panel-head">
+    <strong>Virtual insan</strong>
+    <button id="panelClose" class="x" type="button" aria-label="Bağla">✕</button>
+  </header>
+
+  <div class="panel-body">
+    <div class="field">
+      <span class="lbl">Personaj</span>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <label class="field">
+      <span class="lbl">Ad (ekranda görünür)</span>
+      <input id="avatarName" type="text" maxlength="28" spellcheck="false" autocomplete="off" />
+    </label>
+
+    <label class="field">
+      <span class="lbl">Fon</span>
+      <select id="bg">
+        <option value="studio">Studiya (tövsiyə olunur)</option>
+        <option value="green">Yaşıl — chroma key</option>
+        <option value="transparent">Şəffaf</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="lbl">Səs səviyyəsi — <b id="volLabel">100%</b></span>
+      <input id="volume" type="range" min="0" max="1" step="0.05" />
+    </label>
+
+    <div class="row"><label class="sw"><input id="captions" type="checkbox" /><span>Altyazı göstər</span></label></div>
+    <div class="row"><label class="sw"><input id="micLips" type="checkbox" /><span>Dodaqlar mikrofonla hərəkət etsin</span></label></div>
+    <div class="row"><label class="sw"><input id="hud" type="checkbox" /><span>Ad lövhəsi</span></label></div>
+
+    <div class="row actions">
+      <button id="testBtn" class="btn" type="button">Səsi yoxla</button>
+      <button id="fullBtn" class="btn ghost" type="button">Tam ekran</button>
+    </div>
+
+    <p class="hint">
+      OBS üçün link: <code id="obsUrl"></code><br />
+      OBS → Sources → <b>+ → Browser</b> → 1280×720 → <b>Control audio via OBS</b>.
+    </p>
+    <p class="hint" id="connHint">Server: yoxlanılır…</p>
+  </div>
+</aside>
+
+<button id="gear" class="gear" type="button" title="Ayarlar (H)" aria-label="Ayarlar">⚙</button>
+
+<div id="gate" class="gate" hidden>
+  <div class="gate-card">
+    <div class="gate-ico">🔈</div>
+    <p>Brauzer səsi bloklayıb.</p>
+    <button id="gateBtn" class="btn" type="button">Səsi aktivləşdir</button>
+  </div>
+</div>
+
+<script src="./avatar.js"></script>
+</body>
+</html>

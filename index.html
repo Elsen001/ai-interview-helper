@@ -60,6 +60,14 @@
       <span id="startLabel">Start</span>
     </button>
 
+    <button id="avatarBtn" class="btn ghost icon-only" type="button" title="Virtual insanı aç" aria-label="Virtual insan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="9" r="4" />
+        <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+        <path d="M8.5 8.5c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5" />
+      </svg>
+    </button>
+
     <button id="settingsBtn" class="btn ghost icon-only" type="button" title="Ayarlar" aria-label="Ayarlar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3" />
@@ -240,6 +248,55 @@
           <button id="testTtsBtn" class="btn ghost small" type="button">Səsi yoxla</button>
           <span class="muted small" id="ttsTestResult"></span>
         </div>
+      </section>
+
+      <section class="group">
+        <h3>Virtual insan (avatar)</h3>
+        <p class="group-note">
+          Avatar ayrı pəncərədə açılır və <b>dodaqları səslə sinxron</b> hərəkət edir.
+          OBS virtual kamera ilə Zoom/Meet-ə “kamera” kimi verilir.
+        </p>
+
+        <div class="row-check">
+          <label class="switch">
+            <input id="avatarEnabled" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="switch-label">Avatarı Copilot ilə sinxronlaşdır</span>
+          </label>
+        </div>
+
+        <div class="row-actions avatar-actions">
+          <button id="openAvatarBtn" class="btn ghost small" type="button">🎭 Avatarı aç</button>
+          <button id="copyAvatarUrlBtn" class="btn ghost small" type="button">OBS linkini kopyala</button>
+          <span class="avatar-status muted small" id="avatarStatus" data-kind="off">avatar qoşulmayıb</span>
+        </div>
+
+        <div class="row-check">
+          <label class="switch">
+            <input id="avatarMicSync" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="switch-label">Dodaqlar mikrofonla hərəkət etsin</span>
+          </label>
+        </div>
+
+        <div class="row-check">
+          <label class="switch">
+            <input id="avatarAudioOnly" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="switch-label">Səsi yalnız avatardan çıxar (lokal səsi söndür)</span>
+          </label>
+          <small class="offset">OBS + VB-CABLE ilə Zoom-a səs ötürəndə bunu aç.</small>
+        </div>
+
+        <details class="guide">
+          <summary>OBS ilə Zoom-a necə qoşum?</summary>
+          <ol>
+            <li>OBS-də <b>Sources → + → Browser</b>, URL: <code id="avatarObsUrl">http://localhost:5188/avatar.html?obs=1</code></li>
+            <li>Ölçü <b>1280 × 720</b>, “Control audio via OBS” işarələ.</li>
+            <li>OBS-də <b>Start Virtual Camera</b> → Zoom-da kamera olaraq <b>OBS Virtual Camera</b> seç.</li>
+            <li>Səs üçün OBS səviyyəsini <b>Monitor</b> et və ya <b>VB-CABLE</b> quraşdırıb Zoom mikrofonu kimi seç.</li>
+          </ol>
+        </details>
       </section>
 
       <section class="group">

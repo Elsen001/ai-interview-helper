@@ -58,6 +58,10 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     elevenVoiceEn: ELEVEN_VOICE_FALLBACK,
     elevenVoiceAz: ELEVEN_VOICE_FALLBACK,
     ttsSpeed: 1,
+
+    avatarEnabled: true,
+    avatarMicSync: true,
+    avatarAudioOnly: false,
   };
 
   const CV_MAX = 20000;
@@ -261,6 +265,15 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     introBtn: $('#introBtn'),
     introBtnMain: $('#introBtnMain'),
 
+    avatarBtn: $('#avatarBtn'),
+    avatarEnabled: $('#avatarEnabled'),
+    avatarMicSync: $('#avatarMicSync'),
+    avatarAudioOnly: $('#avatarAudioOnly'),
+    openAvatarBtn: $('#openAvatarBtn'),
+    copyAvatarUrlBtn: $('#copyAvatarUrlBtn'),
+    avatarStatus: $('#avatarStatus'),
+    avatarObsUrl: $('#avatarObsUrl'),
+
     toast: $('#toast'),
   };
 
@@ -279,9 +292,194 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     toastTimer: null,
     audio: null,
     ttsAbort: null,
+    avatarSpeakTimer: null,
   };
 
   const ttsCache = new Map();
+
+  /* ------------------------- virtual insan (avatar) ------------------------- */
+  const AVATAR_API = '/api/avatar';
+  const avatar = {
+    connected: false,
+    lastState: '',
+    lastLevelSent: 0,
+    lastLevelAt: 0,
+    meter: null,
+    statusTimer: null,
+  };
+
+  function avatarPost(path, body, json) {
+    if (!settings.avatarEnabled) return Promise.resolve(null);
+    const opts = { method: 'POST', cache: 'no-store' };
+    if (json) {
+      opts.headers = { 'content-type': 'application/json' };
+      opts.body = JSON.stringify(body);
+    } else {
+      opts.headers = { 'content-type': (body && body.type) || 'application/octet-stream' };
+      opts.body = body;
+    }
+    return fetch(`${AVATAR_API}${path}`, opts).catch(() => null);
+  }
+
+  function avatarEvent(payload) {
+    if (!settings.avatarEnabled) return;
+    avatarPost('/event', payload, true);
+  }
+
+  // Copilot-un cari vəziyyətini avatar pəncərəsinə ötürür.
+  function currentAvatarState() {
+    if (state.audio || state.ttsAbort) return 'speaking';
+    if (state.currentAbort) return 'thinking';
+    if (state.wantListen && !state.paused) return 'listening';
+    return 'idle';
+  }
+
+  function avatarState(name) {
+    if (!settings.avatarEnabled) return;
+    const s = name || currentAvatarState();
+    if (s === avatar.lastState) return;
+    avatar.lastState = s;
+    avatarPost('/state', { state: s, level: 0 }, true);
+  }
+
+  function avatarSendLevel(level) {
+    if (!settings.avatarEnabled || !settings.avatarMicSync) return;
+    const v = Math.max(0, Math.min(1, Number(level) || 0));
+    const now = performance.now();
+    if (now - avatar.lastLevelAt < 110) return;
+    if (Math.abs(v - avatar.lastLevelSent) < 0.012 && v > 0.01) return;
+    avatar.lastLevelAt = now;
+    avatar.lastLevelSent = v;
+    avatarPost('/state', { state: currentAvatarState(), level: v }, true);
+  }
+
+  // Mikrofon səviyyəsi → avatar dodaqları (danışarkən real hərəkət).
+  async function startAvatarMeter() {
+    if (!settings.avatarEnabled || !settings.avatarMicSync || avatar.meter) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) { stream.getTracks().forEach((t) => t.stop()); return; }
+      const ctx = new Ctx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.6;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const meter = { stream, ctx, analyser, data, raf: 0 };
+      avatar.meter = meter;
+
+      const tick = () => {
+        if (avatar.meter !== meter) return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const d = (data[i] - 128) / 128;
+          sum += d * d;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const active = state.wantListen && !state.paused && !state.audio;
+        if (active) {
+          avatarSendLevel(Math.min(1, rms * 3.6));
+        } else if (avatar.lastLevelSent > 0.01) {
+          avatarSendLevel(0);
+        }
+        meter.raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      /* sayğac istəyə bağlıdır — icazə yoxdursa sadəcə işləmir */
+    }
+  }
+
+  function stopAvatarMeter() {
+    const m = avatar.meter;
+    if (!m) return;
+    avatar.meter = null;
+    cancelAnimationFrame(m.raf);
+    try { m.stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    try { m.ctx.close(); } catch { /* ignore */ }
+    avatar.lastLevelSent = 0;
+  }
+
+  // Danışıq mətnini (+ hazır mp3) avatar pəncərəsinə göndərir.
+  async function avatarSpeak(text, lang, blob) {
+    if (!settings.avatarEnabled) return;
+    let audioId = '';
+    if (blob && blob.size) {
+      const res = await avatarPost('/audio', blob, false);
+      try {
+        if (res && res.ok) audioId = (await res.json()).id || '';
+      } catch { /* ignore */ }
+    }
+    avatarEvent({
+      type: 'speak',
+      text: String(text || '').slice(0, 2000),
+      lang: lang || 'en',
+      audio: audioId,
+    });
+    avatarState('speaking');
+  }
+
+  function avatarStop() {
+    if (!settings.avatarEnabled) return;
+    clearTimeout(state.avatarSpeakTimer);
+    state.avatarSpeakTimer = null;
+    avatarEvent({ type: 'stop' });
+    avatar.lastState = '';
+    avatarState();
+  }
+
+  async function checkAvatarStatus() {
+    const was = avatar.connected;
+    try {
+      const res = await fetch(`${AVATAR_API}/ping`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('http');
+      const data = await res.json();
+      avatar.connected = typeof data.ageMs === 'number' && data.ageMs >= 0 && data.ageMs < 15000;
+    } catch {
+      avatar.connected = false;
+    }
+    // avatar yeni qoşulubsa cari vəziyyəti dərhal ötür
+    if (avatar.connected && !was && settings.avatarEnabled) {
+      avatar.lastState = '';
+      avatarState();
+    }
+    renderAvatarStatus();
+  }
+
+  function renderAvatarStatus() {
+    if (!el.avatarStatus) return;
+    el.avatarStatus.dataset.kind = avatar.connected ? 'ok' : 'off';
+    el.avatarStatus.textContent = avatar.connected ? 'avatar qoşulub ✓' : 'avatar qoşulmayıb';
+  }
+
+  function openAvatarWindow() {
+    const url = `${location.origin}/avatar.html`;
+    const win = window.open(
+      url,
+      'copilot-avatar',
+      'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no'
+    );
+    if (!win) {
+      toast('Pəncərə bloklandı — ünvanı əl ilə aç: ' + url, 'err');
+    }
+    setTimeout(checkAvatarStatus, 1500);
+  }
+
+  async function copyAvatarObsUrl() {
+    const url = `${location.origin}/avatar.html?obs=1`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('OBS linki kopyalandı.', 'ok');
+    } catch {
+      toast(url, '');
+    }
+  }
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recog = null;
@@ -484,6 +682,9 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
       // artıq işləyirsə — problem deyil
       if (err && err.name !== 'InvalidStateError') console.warn(err);
     }
+
+    avatarState();
+    startAvatarMeter();
   }
 
   function stopListening() {
@@ -499,6 +700,8 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     if (recog) {
       try { recog.stop(); } catch { /* ignore */ }
     }
+    stopAvatarMeter();
+    avatarState();
   }
 
   function pauseMic(withToast) {
@@ -512,6 +715,7 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
     renderListening();
     setStatus('Mikrofon susdurulub', 'warn');
     if (withToast) toast('Mikrofon susduruldu. Cavabı oxu, sonra Alt+M ilə davam et.', '');
+    avatarState();
   }
 
   function resumeMic() {
@@ -525,6 +729,7 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
       recog = createRecognizer();
       if (recog) { try { recog.start(); } catch { /* ignore */ } }
     }
+    avatarState();
   }
 
   function toggleMic() {
@@ -963,6 +1168,7 @@ ${cv.slice(0, CV_MAX)}
 
     card.setStreaming();
     setStatus('Cavab yazılır…', 'think');
+    avatarState('thinking');
 
     const model = normalizeModel(settings.model);
     const body = {
@@ -1061,6 +1267,10 @@ ${cv.slice(0, CV_MAX)}
       // cavabın dilinə uyğun səs (EN → Flash, AZ → v3)
       if (settings.ttsAuto && (settings.elevenKey || '').trim()) {
         speakText(parseAnswer(text).answer, card);
+      } else if (settings.avatarEnabled && settings.ttsAuto) {
+        // ElevenLabs yoxdursa avatar dodaqları mətn ritmi ilə hərəkət edir
+        const ans = parseAnswer(text).answer;
+        avatarSpeak(ans, detectAnswerLang(ans), null);
       }
     } catch (err) {
       if (state.currentAbort !== ctrl || err?.name === 'AbortError') {
@@ -1072,6 +1282,7 @@ ${cv.slice(0, CV_MAX)}
       if (state.currentAbort === ctrl) {
         state.currentAbort = null;
         restoreStatus();
+        avatarState();
       }
     }
   }
@@ -1216,6 +1427,31 @@ ${cv.slice(0, CV_MAX)}
       }
     }
 
+    // Virtual insan da eyni cavabı desin (səs faylı ilə, sinxron)
+    if (settings.avatarEnabled) {
+      fetch(url)
+        .then((r) => r.blob())
+        .then((b) => avatarSpeak(text, lang, b))
+        .catch(() => avatarSpeak(text, lang, null));
+    }
+
+    // Səs yalnız avatar pəncərəsindən çıxsın (OBS → Zoom səsi)
+    if (settings.avatarEnabled && settings.avatarAudioOnly && avatar.connected) {
+      const words = text.split(/\s+/).filter(Boolean).length;
+      const ms = Math.max(2200, (words / 2.4) * 1000 + 1400);
+      card?.setSpeaking(true);
+      card?.setLang(lang);
+      setStatus(`Səslənir — avatar (${lang.toUpperCase()})…`, 'think');
+      clearTimeout(state.avatarSpeakTimer);
+      state.avatarSpeakTimer = setTimeout(() => {
+        state.avatarSpeakTimer = null;
+        card?.setSpeaking(false);
+        avatarState();
+        restoreStatus();
+      }, ms);
+      return true;
+    }
+
     const audio = new Audio(url);
     state.audio = audio;
     card?.setSpeaking(true);
@@ -1225,6 +1461,7 @@ ${cv.slice(0, CV_MAX)}
       if (state.audio !== audio) return;
       state.audio = null;
       card?.setSpeaking(false);
+      avatarState();
       restoreStatus();
     };
 
@@ -1233,6 +1470,7 @@ ${cv.slice(0, CV_MAX)}
       state.audio = null;
       card?.setSpeaking(false);
       toast('Səsi oxutmaq alınmadı.', 'err');
+      avatarState();
       restoreStatus();
     };
 
@@ -1269,6 +1507,7 @@ ${cv.slice(0, CV_MAX)}
       const btn = c.querySelector('.mini.speak');
       if (btn) btn.textContent = '🔊 Dinlə';
     });
+    avatarStop();
     restoreStatus();
   }
 
@@ -1329,6 +1568,12 @@ ${cv.slice(0, CV_MAX)}
     el.ttsTestResult.className = 'muted small';
     el.testResult.textContent = '';
     el.testResult.className = 'muted small';
+
+    el.avatarEnabled.checked = !!settings.avatarEnabled;
+    el.avatarMicSync.checked = !!settings.avatarMicSync;
+    el.avatarAudioOnly.checked = !!settings.avatarAudioOnly;
+    if (el.avatarObsUrl) el.avatarObsUrl.textContent = `${location.origin}/avatar.html?obs=1`;
+    renderAvatarStatus();
   }
 
   function openSettings() {
@@ -1515,6 +1760,36 @@ ${cv.slice(0, CV_MAX)}
 
     el.loadVoicesBtn.addEventListener('click', loadElevenVoices);
     el.testTtsBtn.addEventListener('click', testTts);
+
+    // ---- virtual insan (avatar) ----
+    el.avatarBtn.addEventListener('click', openAvatarWindow);
+    el.openAvatarBtn.addEventListener('click', openAvatarWindow);
+    el.copyAvatarUrlBtn.addEventListener('click', copyAvatarObsUrl);
+
+    el.avatarEnabled.addEventListener('change', () => {
+      settings.avatarEnabled = el.avatarEnabled.checked;
+      saveSettings();
+      if (!settings.avatarEnabled) {
+        stopAvatarMeter();
+        avatar.lastState = '';
+      } else {
+        avatarState();
+        if (state.wantListen && !state.paused) startAvatarMeter();
+      }
+      checkAvatarStatus();
+    });
+
+    el.avatarMicSync.addEventListener('change', () => {
+      settings.avatarMicSync = el.avatarMicSync.checked;
+      saveSettings();
+      if (!settings.avatarMicSync) stopAvatarMeter();
+      else if (state.wantListen && !state.paused) startAvatarMeter();
+    });
+
+    el.avatarAudioOnly.addEventListener('change', () => {
+      settings.avatarAudioOnly = el.avatarAudioOnly.checked;
+      saveSettings();
+    });
   }
 
   async function refreshModels() {
@@ -1708,6 +1983,9 @@ ${cv.slice(0, CV_MAX)}
     bindSettings();
     renderListening();
     renderInterim();
+
+    checkAvatarStatus();
+    setInterval(checkAvatarStatus, 3000);
 
     if (!SR) {
       setStatus('Brauzer dəstəkləmir', 'error');
