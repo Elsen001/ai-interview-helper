@@ -41,7 +41,7 @@ CAVAB: <azərbaycanca cavab — birinci şəxsdən, 2-4 cümlə, maksimum ~70 s�
 
   const DEFAULTS = {
     apiKey: '',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.8-flash',
     answerLang: 'en+az',
     context: '',
     persona: DEFAULT_PERSONA,
